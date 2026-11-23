@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inventory Management System</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:26px 15px;background:#f4f7f6;color:#263638;font-family:Arial,sans-serif}
+.wrap{max-width:1000px;margin:auto;background:#fff;padding:25px;border-radius:14px;box-shadow:0 8px 25px #183b3512}
+h1{margin:0 0 7px;color:#17675a}.sub{margin:0 0 22px;color:#71817e}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+.stat{background:#eef7f4;padding:15px;border-radius:9px}.stat span{display:block;color:#637570;font-size:13px}.stat strong{display:block;font-size:24px;margin-top:5px;color:#17675a}
+form{background:#f7faf9;padding:18px;border-radius:10px;display:grid;grid-template-columns:repeat(2,1fr);gap:13px}
+.field{display:flex;flex-direction:column;gap:6px}label{font-size:14px;font-weight:bold}
+input{padding:11px;border:1px solid #ccd8d4;border-radius:7px;font-size:15px;min-width:0}
+input:focus{outline:2px solid #b7ddd3;border-color:#318b78}
+.actions{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}
+button{border:0;border-radius:7px;padding:10px 14px;font-weight:bold;cursor:pointer}
+.primary{background:#187766;color:#fff}.muted{background:#e6eeeb;color:#344b45}
+.edit{background:#fff0c7;color:#725000}.del{background:#ffe1df;color:#9a2e29}
+.toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:23px 0 12px}
+.toolbar input{max-width:300px;width:100%}
+.table-wrap{overflow-x:auto}table{width:100%;min-width:700px;border-collapse:collapse}
+th,td{text-align:left;padding:12px 10px;border-bottom:1px solid #e8efec;font-size:14px}
+th{background:#edf5f2;color:#31584f;font-size:13px}
+.row-actions{display:flex;gap:7px}.empty{text-align:center;color:#71817e;padding:25px}
+#notice{min-height:19px;color:#187766;font-size:14px;margin:12px 0 0}
+.low{color:#a14a13;font-weight:bold}
+@media(max-width:620px){.wrap{padding:17px}.stats{grid-template-columns:1fr}.toolbar{align-items:stretch;flex-direction:column}.toolbar input{max-width:none}form{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>Inventory Management System</h1>
+  <p class="sub">Manage your products, monitor stock, and keep inventory records organized.</p>
+
+  <section class="stats">
+    <div class="stat"><span>Total Products</span><strong id="totalProducts">0</strong></div>
+    <div class="stat"><span>Total Stock Units</span><strong id="totalUnits">0</strong></div>
+    <div class="stat"><span>Low Stock Items (5 or less)</span><strong id="lowStock">0</strong></div>
+  </section>
+
+  <form id="productForm">
+    <input type="hidden" id="productId">
+    <div class="field"><label for="productName">Product Name *</label><input id="productName" required placeholder="e.g. Notebook"></div>
+    <div class="field"><label for="category">Category *</label><input id="category" required placeholder="e.g. School Supplies"></div>
+    <div class="field"><label for="quantity">Quantity *</label><input id="quantity" type="number" min="0" step="1" required placeholder="e.g. 25"></div>
+    <div class="field"><label for="price">Price per Item (₱) *</label><input id="price" type="number" min="0" step="0.01" required placeholder="e.g. 35.00"></div>
+    <div class="actions">
+      <button class="primary" id="saveBtn" type="submit">Add Product</button>
+      <button class="muted" id="cancelBtn" type="button" hidden>Cancel Edit</button>
+      <button class="muted" type="reset">Clear Form</button>
+    </div>
+  </form>
+  <p id="notice" role="status" aria-live="polite"></p>
+
+  <div class="toolbar">
+    <strong>Product Inventory <span id="recordCount">(0 items)</span></strong>
+    <input id="search" type="search" placeholder="Search product or category...">
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Product</th><th>Category</th><th>Quantity</th><th>Unit Price</th><th>Stock Value</th><th>Actions</th></tr></thead>
+      <tbody id="productRows"></tbody>
+    </table>
+  </div>
+</main>
+<script>
+const KEY = "simpleInventoryRecords_v1";
+let products = JSON.parse(localStorage.getItem(KEY) || "[]");
+const $ = id => document.getElementById(id);
+const form = $("productForm");
+
+function persist(){ localStorage.setItem(KEY, JSON.stringify(products)); }
+function notify(text){ $("notice").textContent = text; }
+function peso(value){ return "₱" + Number(value).toFixed(2); }
+
+function render(){
+  const term = $("search").value.trim().toLowerCase();
+  const shown = products.filter(p => p.name.toLowerCase().includes(term) || p.category.toLowerCase().includes(term));
+  $("totalProducts").textContent = products.length;
+  $("totalUnits").textContent = products.reduce((sum,p) => sum + Number(p.quantity), 0);
+  $("lowStock").textContent = products.filter(p => Number(p.quantity) <= 5).length;
+  $("recordCount").textContent = `(${products.length} ${products.length === 1 ? "item" : "items"})`;
+  $("productRows").replaceChildren();
+
+  if(!shown.length){
+    const row = document.createElement("tr"), cell = document.createElement("td");
+    cell.colSpan = 7; cell.className = "empty"; cell.textContent = "No products found.";
+    row.appendChild(cell); $("productRows").appendChild(row); return;
+  }
+
+  shown.forEach((p,index) => {
+    const row = document.createElement("tr");
+    [index+1,p.name,p.category,p.quantity,peso(p.price),peso(Number(p.quantity)*Number(p.price))].forEach((value,i)=>{
+      const cell=document.createElement("td"); cell.textContent=value;
+      if(i===3 && Number(p.quantity)<=5) cell.className="low";
+      row.appendChild(cell);
+    });
+    const cell=document.createElement("td"), group=document.createElement("div");
+    group.className="row-actions";
+    const edit=document.createElement("button"); edit.type="button"; edit.className="edit"; edit.textContent="Edit";
+    edit.addEventListener("click",()=>loadForEdit(p.id));
+    const del=document.createElement("button"); del.type="button"; del.className="del"; del.textContent="Delete";
+    del.addEventListener("click",()=>removeProduct(p.id));
+    group.append(edit,del); cell.appendChild(group); row.appendChild(cell);
+    $("productRows").appendChild(row);
+  });
+}
+
+// CREATE and UPDATE
+form.addEventListener("submit",event=>{
+  event.preventDefault();
+  const id=$("productId").value;
+  const item={
+    name:$("productName").value.trim(),
+    category:$("category").value.trim(),
+    quantity:Number($("quantity").value),
+    price:Number($("price").value)
+  };
+  if(!item.name || !item.category || item.quantity<0 || item.price<0 ||
+     $("quantity").value==="" || $("price").value===""){
+    notify("Please enter valid information in all required fields."); return;
+  }
+  if(id){
+    products=products.map(p=>p.id===id?{...p,...item}:p);
+    notify("Product updated successfully.");
+  }else{
+    products.push({id:String(Date.now())+Math.random().toString(16).slice(2),...item});
+    notify("Product added successfully.");
+  }
+  persist(); resetForm(); render();
+});
+
+function loadForEdit(id){
+  const p=products.find(item=>item.id===id); if(!p)return;
+  $("productId").value=p.id; $("productName").value=p.name;
+  $("category").value=p.category; $("quantity").value=p.quantity; $("price").value=p.price;
+  $("saveBtn").textContent="Update Product"; $("cancelBtn").hidden=false;
+  $("productName").focus(); notify("Edit the product details, then click Update Product.");
+}
+
+// DELETE
+function removeProduct(id){
+  const p=products.find(item=>item.id===id);
+  if(!p || !confirm(`Delete ${p.name} from the inventory?`))return;
+  products=products.filter(item=>item.id!==id);
+  if($("productId").value===id)resetForm();
+  persist(); render(); notify("Product deleted.");
+}
+function resetForm(){
+  form.reset(); $("productId").value="";
+  $("saveBtn").textContent="Add Product"; $("cancelBtn").hidden=true;
+}
+$("cancelBtn").addEventListener("click",resetForm);
+$("search").addEventListener("input",render);
+form.addEventListener("reset",()=>setTimeout(resetForm,0));
+render();
+</script>
+</body>
+</html>
